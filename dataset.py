@@ -4,17 +4,22 @@ import matplotlib.pyplot as plt
 import random
 
 class MNISTDataset(torch.utils.data.IterableDataset):
-  def __init__(self, train=True, single=False):
+  def __init__(self, train=True, single=False, total_samples=500000, seed=2):
     transform = tv.transforms.Compose(
             [
                 tv.transforms.ToTensor(),
                 tv.transforms.Normalize(mean=[0.1307], std=[0.3081]), #important for getting values between -1 and 1
             ]
     )
+
+    torch.manual_seed(seed)
+    random.seed(seed)    
+
     self.dataset = tv.datasets.MNIST(
             root="./data", train=train, download=True, transform=transform
         )
     self.single = single
+    self.total_samples = total_samples
   
   def __len__(self):
           return len(self.dataset)
@@ -32,19 +37,20 @@ class MNISTDataset(torch.utils.data.IterableDataset):
         return patches
 
   def __iter__(self):
-    while True:
+    count = 0
+    while count < self.total_samples:
       labels = []
       images = []
 
       if self.single:
-        rand_idx = random.randint(0, len(self.dataset)-1) 
+        rand_idx = random.randint(1, len(self.dataset)-1) 
         img, num = self.dataset[rand_idx]
         labels.append(num)
         combined = img[0]
 
       elif not self.single:
         for _ in range(4):
-          rand_idx = random.randint(0, len(self.dataset)-1) 
+          rand_idx = random.randint(1, len(self.dataset)-1) 
           img, num = self.dataset[rand_idx]
           labels.append(num)
           images.append(img[0])  # img[0] removes channel dimension
@@ -58,7 +64,8 @@ class MNISTDataset(torch.utils.data.IterableDataset):
 
       # Reshape from
       flattened = patches.reshape(16, -1)  # shape: (16 x 196)
-      yield combined, flattened, labels   
+      yield combined, flattened, labels[0]   
+      count += 1
 
 
 
@@ -71,15 +78,17 @@ if __name__ == '__main__':
   
   # Get a single batch
   cmb, flt, lbl = next(iter(loader))
-  
-  # Remove batch dimension since we used batch_size=1
-  img_cmb = cmb[0].squeeze(0)
-  img_flt = flt[0].squeeze(0)
+  print(cmb.shape)
+  print(flt.shape)
+  print(lbl)
+  # # Remove batch dimension since we used batch_size=1
+  # img_cmb = cmb[0].squeeze(0)
+  # img_flt = flt[0].squeeze(0)
 
-  print("Image shape:", img_cmb.shape)
-  print("Numbers:", lbl)
-  plt.imshow(img_cmb, cmap='grey')
-  plt.show()
+  # print("Image shape:", img_cmb.shape)
+  # print("Numbers:", lbl)
+  # plt.imshow(img_cmb, cmap='grey')
+  # plt.show()
 
   # # for patches check
   # fig, axs = plt.subplots(nrows=4, ncols=4)

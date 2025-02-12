@@ -16,6 +16,8 @@ class SelfAttention(torch.nn.Module):
 
         self.layer_norm = torch.nn.LayerNorm(d_model)
         self.dropout = torch.nn.Dropout(dropout)
+        self.mask = None
+
 
     def generate_causal_mask(seq_len):
         return torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool()
