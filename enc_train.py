@@ -1,75 +1,81 @@
 import torch
-# import wandb
+import wandb
 import encoder
 import tqdm
 import dataset
+import utils
 
 torch.manual_seed(2)
 
-batch_size = 256
-epochs = 2
-initial_lr = 0.0001
+batch_size = 512
+epochs = 40
+initial_lr = 0.001
+d_model = 64
+dff = 1024
+device = utils.get_device()
+dropout = 0.1
+total_samples = 60000
 
-
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-print("device:", device)
-
-# wandb.init(
-#     project="mlx6-mnist-transformer",
-#     config={
-#         "learning_rate": initial_lr,
-#         "epochs": epochs,
-#     },
-# )
-
-
-model = encoder.Encoder(input_dim=49, dff=1024)
+model = encoder.Classification(input_dim=49, dff=dff, d_model=d_model)
 model.to(device)
 
-print("param count:", sum(p.numel() for p in model.parameters()))
+params = sum(p.numel() for p in model.parameters())
+print("param count:", params)
 
-
-
-
+wandb.init(
+    project="mlx6-mnist-transformer",
+    config={
+        "learning_rate": 'scheduler',
+        "epochs": epochs,
+        "params": params,
+        "encoder_layers": 3,
+        "d_model": d_model,
+        "dff": dff,
+        "single": True,
+        "dropout": dropout,
+    },
+)
 #
 #
 #
-train_dataset = dataset.MNISTDataset(train=True, single=True, total_samples=100000, seed=2)
+train_dataset = dataset.MNISTDataset(train=True, single=True, total_samples=total_samples, seed=2)
 test_dataset = dataset.MNISTDataset(train=False, single=True, total_samples=10000, seed=2)
 
 train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, num_workers=0)
-test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, num_workers=2)
+test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, num_workers=0)
+
 
 loss_fn = torch.nn.CrossEntropyLoss()
 
+
 optimiser = torch.optim.Adam(model.parameters(), lr=initial_lr)
+
+# ReduceLROnPlateau - reduces LR when validation loss stops improving
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimiser,
+    mode='min',
+    factor=0.5,  # multiply LR by this factor when reducing
+    patience=2,   # number of epochs to wait before reducing LR
+    verbose=True  # print message when LR is reduced
+)
 
 for epoch in range(epochs):
     print(f"Epoch {epoch + 1} started")
     total_loss = 0
     num_batches = 0
-    # for step in range(steps_per_epoch):
+    total_correct = 0
+    total_samples = 0
     prgs = tqdm.tqdm((train_dataloader), desc=f"Epoch {epoch+1}", leave=False)
-        # print(prgs)
     for _, flattened, labels in prgs:            
         flattened, labels = flattened.to(device), labels.to(device)
         
         optimiser.zero_grad()
-
-        encoder_output = model(flattened)
-        cls_token = encoder_output[:, 0, :]
-        normalised_output = torch.nn.LayerNorm(64).to(device)(cls_token)
-        
-        logits = torch.nn.Linear(64, 10).to(device)(normalised_output)
+        logits = model(flattened)
         
         loss = loss_fn(logits, labels)
-
+        
         loss.backward()
+        
         optimiser.step()
 
         total_loss += loss.item()
@@ -78,34 +84,73 @@ for epoch in range(epochs):
         # Calculate accuracy
         _, predicted = torch.max(logits, 1)
         correct = (predicted == labels).sum().item()
-        accuracy = correct / labels.size(0)
-
+        total_correct += correct
+        total_samples += labels.size(0)
+    
+        wandb.log({
+            "batch_train_loss": loss.item(), 
+            "batch_train_accuracy": correct / labels.size(0)
+        })
 
     avg_loss = total_loss / num_batches
-    print(f"Epoch {epoch+1}, Loss: {loss.item():.4f}, Acc: {accuracy:.2%}")
+    epoch_accuracy = total_correct / total_samples
 
-    model.eval()
-    test_loss = 0.0
-    test_correct = 0
-    test_total = 0
+    
+    print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}, Acc: {epoch_accuracy:.2%}")
 
-    with torch.no_grad():
-        for test_flattened, test_labels in test_dataloader:
-            test_flattened, test_labels = test_flattened.to(device), test_labels.to(device)
-            outputs = model(test_flattened)
-            test_loss += loss_fn(outputs, test_labels).item()
-            test_correct += (torch.argmax(outputs, 1) == test_labels).sum().item()
-            test_total += test_labels.size(0)
+    # Validation phase
+    model.eval()  # Set model to evaluation mode
+    val_loss = 0.0
+    val_correct = 0
+    val_total = 0
+    
+    with torch.no_grad():  # Disable gradient computation for validation
+        val_prgs = tqdm.tqdm(test_dataloader, desc="Validation", leave=False)
+        for _, val_flattened, val_labels in val_prgs:
+            val_flattened, val_labels = val_flattened.to(device), val_labels.to(device)
+            
+            # Forward pass
+            val_logits = model(val_flattened)
+            
+            # Calculate validation loss
+            batch_val_loss = loss_fn(val_logits, val_labels)
+            val_loss += batch_val_loss.item()
+            
+            # Calculate validation accuracy
+            _, val_predicted = torch.max(val_logits, 1)
+            val_correct += (val_predicted == val_labels).sum().item()
+            val_total += val_labels.size(0)
+    
+    # Calculate average validation metrics
+    avg_val_loss = val_loss / len(test_dataloader)
+    val_accuracy = val_correct / val_total
+    
+    print(f"Validation Loss: {avg_val_loss:.4f}, Validation Acc: {val_accuracy:.2%}")
+    
+    # Step the scheduler
+    if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+        scheduler.step(avg_val_loss)  # For ReduceLROnPlateau
+    
+    # Log learning rate
+    current_lr = optimiser.param_groups[0]['lr']
+    wandb.log({
+        "learning_rate": current_lr,
+        "train_loss": avg_loss,
+        "train_accuracy": epoch_accuracy,
+        "val_loss": avg_val_loss,
+        "val_accuracy": val_accuracy,
+        "epoch": epoch
+    })
 
-    print(f"Test Loss: {test_loss/len(test_dataloader):.4f}, Acc: {test_correct/test_total:.2%}")
-#         # wandb.log({"loss": loss.item()})
+    # Set model back to training mode
+    model.train()
 
-# torch.save(model.state_dict(), "weights/encoder.pt")
+    torch.save(model.state_dict(), "weights/single_encoder.pt")
 
-# # print("Uploading...")
-# # artifact = wandb.Artifact("model-weights", type="encoder")
-# # artifact.add_file("./weights/encoder.pt")
-# # wandb.log_artifact(artifact)
+print("Uploading...")
+artifact = wandb.Artifact("model-weights", type="single_encoder")
+artifact.add_file("./weights/single_encoder.pt")
+wandb.log_artifact(artifact)
 
-# print("Done!")
-# # wandb.finish()
+print("Done!")
+wandb.finish()

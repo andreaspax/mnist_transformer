@@ -45,7 +45,7 @@ class SelfAttention(torch.nn.Module):
 
         A = torch.cat(As, dim=-1)
         A = self.dropout(A)
-        # A = A + x  # residual connection
+        A = A + x  # residual connection
         A = self.layer_norm(A)
 
         return A

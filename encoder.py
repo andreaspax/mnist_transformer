@@ -50,4 +50,19 @@ class EncoderBlock(torch.nn.Module):
 
         # feed-forward with residual connection
         return x + self.linear(x)
+    
+
+class Classification(torch.nn.Module):
+    def __init__(self, d_model=64, dff=1024, seq_len=16, input_dim=196, output_dim=10):
+        super().__init__()
+        self.encoder = Encoder(input_dim, dff, seq_len, d_model)
+        self.norm = torch.nn.LayerNorm(d_model)
+        self.classifier = torch.nn.Linear(d_model, output_dim)
+        
+    def forward(self, x):
+        
+        x = self.encoder(x)
+        x = x.mean(dim=1)
+        x = self.norm(x)
+        return self.classifier(x)
         

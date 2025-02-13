@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import random
 
 class MNISTDataset(torch.utils.data.IterableDataset):
-  def __init__(self, train=True, single=False, total_samples=500000, seed=2):
+  def __init__(self, train=True, single=False, total_samples=60000, seed=2):
     transform = tv.transforms.Compose(
             [
                 tv.transforms.ToTensor(),
