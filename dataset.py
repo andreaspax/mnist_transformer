@@ -2,7 +2,7 @@ import torchvision as tv
 import torch
 import matplotlib.pyplot as plt
 import random
-
+import utils
 class MNISTDataset(torch.utils.data.IterableDataset):
   def __init__(self, train=True, single=False, total_samples=60000, seed=2):
     transform = tv.transforms.Compose(
@@ -20,7 +20,7 @@ class MNISTDataset(torch.utils.data.IterableDataset):
         )
     self.single = single
     self.total_samples = total_samples
-  
+    self.vocab = utils.vocab
   def __len__(self):
           return len(self.dataset)
 
@@ -64,7 +64,16 @@ class MNISTDataset(torch.utils.data.IterableDataset):
 
       # Reshape from
       flattened = patches.reshape(16, -1)  # shape: (16 x 196)
-      yield combined, flattened, labels[0]   
+
+      labels = torch.tensor(labels, dtype=torch.long)  # Convert to 1D tensor
+
+      # Create input sequence with <start> token prepended
+      input_seq = torch.cat([torch.tensor([10], dtype=torch.long), labels])
+
+      # Create target sequence with <end> token appended
+      target_seq = torch.cat([labels, torch.tensor([11], dtype=torch.long)])
+
+      yield combined, flattened, input_seq, target_seq
       count += 1
 
 
@@ -72,23 +81,24 @@ class MNISTDataset(torch.utils.data.IterableDataset):
 
 if __name__ == '__main__':
 
-  test_ds = MNISTDataset(train=True, single=True)
+  test_ds = MNISTDataset(train=True, single=False)
   print(len(test_ds))
   loader = torch.utils.data.DataLoader(test_ds, batch_size=1)
   
   # Get a single batch
-  cmb, flt, lbl = next(iter(loader))
+  cmb, flt, in_lbl, tgt_lbl = next(iter(loader))
   print(cmb.shape)
   print(flt.shape)
-  print(lbl)
+  print(in_lbl)
+  print(tgt_lbl)
   # # Remove batch dimension since we used batch_size=1
-  # img_cmb = cmb[0].squeeze(0)
+  img_cmb = cmb[0].squeeze(0)
   # img_flt = flt[0].squeeze(0)
 
   # print("Image shape:", img_cmb.shape)
   # print("Numbers:", lbl)
-  # plt.imshow(img_cmb, cmap='grey')
-  # plt.show()
+  plt.imshow(img_cmb, cmap='grey')
+  plt.show()
 
   # # for patches check
   # fig, axs = plt.subplots(nrows=4, ncols=4)

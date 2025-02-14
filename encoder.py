@@ -2,7 +2,7 @@ import torch
 import attention
 
 class Encoder(torch.nn.Module):
-    def __init__(self, input_dim=196, dff=1024, seq_len=16, d_model=64, dropout=0.1):
+    def __init__(self, input_dim=196, dff=1024, seq_len=16, d_model=64, dropout=0.1, causal=False):
         super().__init__()
 
          # Learnable class token
@@ -32,10 +32,10 @@ class Encoder(torch.nn.Module):
         return x
         
 class EncoderBlock(torch.nn.Module):
-    def __init__(self, dff=256, d_model=64, dropout=0.1):
+    def __init__(self, dff=256, d_model=64, dropout=0.1, causal=False):
         super().__init__()
 
-        self.attention = attention.SelfAttention(d_model, dropout)
+        self.attention = attention.SelfAttention(d_model, dropout, causal=causal)
         self.linear = torch.nn.Sequential(
             torch.nn.Linear(d_model, dff),
             torch.nn.ReLU(),
@@ -53,16 +53,17 @@ class EncoderBlock(torch.nn.Module):
     
 
 class Classification(torch.nn.Module):
-    def __init__(self, d_model=64, dff=1024, seq_len=16, input_dim=196, output_dim=10):
+    def __init__(self, d_model=64, dff=1024, seq_len=16, input_dim=196, output_dim=12, causal=False):
         super().__init__()
-        self.encoder = Encoder(input_dim, dff, seq_len, d_model)
+        self.encoder = Encoder(input_dim, dff, seq_len, d_model, causal=causal)
         self.norm = torch.nn.LayerNorm(d_model)
-        self.classifier = torch.nn.Linear(d_model, output_dim)
+        self.classifier = torch.nn.Linear(d_model, output_dim * 5)  # Predict 5 numbers
         
     def forward(self, x):
-        
         x = self.encoder(x)
         x = x.mean(dim=1)
         x = self.norm(x)
-        return self.classifier(x)
+        logits = self.classifier(x)
+        # Reshape to (batch_size, 5, num_classes)
+        return logits.view(x.size(0), 5, -1)
         
