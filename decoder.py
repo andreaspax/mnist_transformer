@@ -17,8 +17,10 @@ class Decoder(torch.nn.Module):
         ])
         
     def forward(self, x: torch.Tensor, y: torch.Tensor):
+        seq_len = x.size(1)
         x = self.embedding(x)
-        x = x + self.positional_encoding
+        # Only use positional encoding up to current sequence length
+        x = x + self.positional_encoding[:seq_len, :]
         
         for block in self.decoder_blocks:
             x = block(x, y)

@@ -31,7 +31,7 @@ def visualize_prediction(combined_image, predicted_value):
     plt.subplot(1, 2, 2)
     plt.axis('off')
     plt.title('Prediction')
-    plt.text(0.1, 0.5, f"Predicted first digit: {predicted_value}", fontsize=12)
+    plt.text(0.1, 0.5, f"Predicted sequence: {predicted_value}", fontsize=12)
     
     plt.tight_layout()
     plt.show()
@@ -45,29 +45,47 @@ def main():
     model = load_model(weights_path, device)
     
     # Load test dataset
-    test_dataset = dataset.MNISTDataset(train=False, single=False, seed=99)
+    test_dataset = dataset.MNISTDataset(train=False, single=False, seed=2)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1)
     
     # Get a sample image
     combined_img, flattened, _, out_label = next(iter(test_dataloader))
     flattened = flattened.to(device)
     
-    # Create start token (usually 10 for start token)
-    start_token = torch.tensor([[10]], device=device)  # Shape: [1, 1]
-    
-    # Make prediction
-    with torch.no_grad():
-        logits = model(start_token, flattened)
-        # Get prediction for first position only
-        prediction = torch.argmax(logits[0, 0]).item()
-    
     print(f"Correct label: {out_label}")
-    print("\nPrediction Results:")
-    print(f"Start token: {start_token.item()}")
-    print(f"Predicted first digit: {prediction}")
+
+    #assume max 100 tokens (sequence length)
+    max_tokens = 100
+    prediction_sequence = []
+
+    # Create start token (usually 10 for start token)
+    token_seq = torch.tensor([[10]], device=device)  # Shape: [1, 1]
     
+    with torch.no_grad():
+        for n in range(max_tokens):
+            print(f"\nCurrent sequence: {[t.item() for t in token_seq[0]]}")
+            
+            # Make prediction
+            logits = model(token_seq, flattened)
+            
+            # Get prediction for next token only
+            prediction = torch.argmax(logits[0, n]).item()
+            prediction_sequence.append(prediction)
+            print(f"Predicted so far: {prediction_sequence}")
+
+            if prediction == 11: # End token
+                break
+
+            # Add prediction to token sequence
+            token_seq = torch.cat([token_seq, torch.tensor([[prediction]], device=device)], dim=1)
+            
+            if token_seq.size(1) >= max_tokens:
+                break
+    
+    prediction_sequence = [utils.vocab[t] for t in prediction_sequence]
+
     # Visualize results
-    visualize_prediction(combined_img[0], prediction)
+    visualize_prediction(combined_img[0], prediction_sequence)
 
 if __name__ == "__main__":
     main()
